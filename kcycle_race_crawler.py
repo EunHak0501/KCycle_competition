@@ -8,8 +8,6 @@ import argparse
 from bs4 import BeautifulSoup
 from tqdm.auto import tqdm
 
-# ───── 기존에 작성하신 함수들 ────────────────────────────────────────────────
-
 headers = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -38,75 +36,131 @@ def get_race_day_list(year: int):
         result.append((회차, 일차, yyyymmdd))
     return list(reversed(result))
 
-def parse_one_race(year: int, 회차: str, 일차: str, 날짜: str):
+def parse_one_race(
+    year: int,
+    회차: str,
+    일차: str,
+    날짜: str,
+    region: str = "광명",
+    race_no: str = None
+) -> pd.DataFrame:
+    """
+    year, 회차, 일차, 날짜 로 페이지를 열고,
+    region (e.g. "광명") 과 race_no (e.g. "01") 조합에 해당하는 경주를 파싱합니다.
+    race_no 가 None 이면 해당 day 의 첫 번째 region 경주를 가져옵니다.
+    """
     url  = f"https://www.kcycle.or.kr/race/card/decision/{year}/{회차}/{일차}"
     soup = get_soup(url)
 
-    # ───── swiper: 광명 x일차 중 첫 번째 id •••────────────────────────
-    gwang = next(
-        (btn["onclick"] for btn in soup.select("div.swiper-slide button")
-         if btn.select_one(".region") and btn.select_one(".date") and
-            btn.select_one(".region").text.strip() == "광명"), None)
-    race_id = re.search(r"scrlMoveTo\(['\"](.*?)['\"]", gwang).group(1)
+    # 1) swiper 버튼 중에서 region 과 (race_no 일치시) 선택
+    btns = soup.select("div.swiper-slide button")
+    target_onclick = None
+    for btn in btns:
+        reg = btn.select_one(".region").text.strip()
+        num = btn.select_one(".date").text.strip()
+        if reg == region and (race_no is None or num == race_no):
+            target_onclick = btn["onclick"]
+            break
+    if not target_onclick:
+        raise ValueError(f"{region}{race_no or ''} 경주 버튼을 찾을 수 없습니다.")
+
+    race_id = re.search(r"scrlMoveTo\(['\"](.*?)['\"]", target_onclick).group(1)
     race    = soup.find("div", id=race_id)
 
-    # ───── 표 0: 기본 선수 정보 ──────────────────────────────────────
-    base_rows = race.select("table.excel_table")[0].select("tbody tr")
+    # 2) h2 제목에서 지역·번호·종류·시간 추출
+    title = race.select_one("h2").get_text(strip=True)
+    m = re.match(r"(.+?)\s+(\d+)경주\s*\(\s*(\S+)\s+([\d:]+)\s*\)", title)
+    if m:
+        경주지역, 경주번호, 경주종류, 경주시간 = m.groups()
+    else:
+        경주지역 = 경주번호 = 경주종류 = 경주시간 = ""
+
+    # 3) 표0: 기본 선수 정보 (기수/나이, 7명만)
     base = []
-    for r in base_rows:
-        a = r.select_one('.name a');       num = r.select_one('.sign')
-        if not a: continue
-        t = [td.get_text(strip=True) for td in r.select("td")]
+    for r in race.select("table.excel_table")[0].select("tbody tr"):
+        name_a = r.select_one(".name a")
+        if not name_a:
+            continue
+        num = r.select_one(".sign").text.strip()
+        oth = r.select_one(".other").text.strip()
+        mm = re.match(r"(\d+)기/(\d+)세", oth)
+        기수, 나이 = (mm.group(1), mm.group(2)) if mm else ("", "")
+        tds = [td.get_text(strip=True) for td in r.select("td")]
+        if len(tds) < 14:
+            continue  # 결장 처리
         base.append({
-            "이름": a.text.strip(),  "번호": num.text.strip(),
-            "기어배수": t[0], "200m": t[1], "훈련지": t[2],
-            "승률": t[3],  "연대율": t[4], "삼연대율": t[5],
-            "입상/출전": t[6], "선행": t[7], "젖히기": t[8],
-            "추입": t[9],  "마크": t[10], "등급조정": t[11],
-            "최근3득점": t[12], "최근3순위": t[13],
+            "이름":        name_a.text.strip(),
+            "번호":        num,
+            "기수":        기수,
+            "나이":        나이,
+            "기어배수":    tds[0],
+            "200m":       tds[1],
+            "훈련지":      tds[2],
+            "승률":        tds[3],
+            "연대율":      tds[4],
+            "삼연대율":    tds[5],
+            "입상/출전":   tds[6],
+            "선행":        tds[7],
+            "젖히기":      tds[8],
+            "추입":        tds[9],
+            "마크":        tds[10],
+            "등급조정":    tds[11],
+            "최근3득점":   tds[12],
+            "최근3순위":   tds[13],
         })
     df_base = pd.DataFrame(base)
+    if len(df_base) != 7:
+        # 7명 아니면 빈 데이터프레임 리턴
+        return pd.DataFrame()
 
-    # ───── 표1: 훈련 일지 ────────────────────────────────────────────
-    train_rows = race.select("table.excel_table")[1].select("tbody tr")
+    # 4) 표1: 훈련 일지
     train = []
-    for r in train_rows:
-        a = r.select_one('.name a')
-        if not a: continue
-        t = [td.get_text(strip=True) for td in r.select("td")]
+    for r in race.select("table.excel_table")[1].select("tbody tr"):
+        name_a = r.select_one(".name a")
+        if not name_a:
+            continue
+        tds = [td.get_text(strip=True) for td in r.select("td")]
         train.append({
-            "이름": a.text.strip(), "훈련일수": t[0],
-            "훈련동참자": t[1], "훈련내용": t[2]})
+            "이름":        name_a.text.strip(),
+            "훈련일수":    tds[0],
+            "훈련동참자":  tds[1],
+            "훈련내용":    tds[2],
+        })
     df_train = pd.DataFrame(train)
 
-    # ───── 표2: 최근 성적 (금회 3일차가 있을 수도) ──────────────────
-    rec_rows = race.select("table.excel_table")[2].select("tbody tr")
+    # 5) 표2: 최근 성적
     rec = []
-    for r in rec_rows:
-        a = r.select_one('.name a')
-        if not a: continue
-        t = [td.get_text(strip=True) for td in r.select("td")]
+    for r in race.select("table.excel_table")[2].select("tbody tr"):
+        name_a = r.select_one(".name a")
+        if not name_a:
+            continue
+        tds = [td.get_text(strip=True) for td in r.select("td")]
         rec.append({
-            "이름": a.text.strip(),
-            "최근3_장소일자": t[0], "최근3_1일": t[1], "최근3_2일": t[2], "최근3_3일": t[3],
-            "최근2_장소일자": t[4], "최근2_1일": t[5], "최근2_2일": t[6], "최근2_3일": t[7],
-            "최근1_장소일자": t[8], "최근1_1일": t[9], "최근1_2일": t[10],"최근1_3일": t[11],
-            "금회_1일": t[12], "금회_2일": t[13],
-            "금회_3일": t[14] if len(t) > 14 else ""
+            "이름":          name_a.text.strip(),
+            "최근3_장소일자": tds[0], "최근3_1일": tds[1], "최근3_2일": tds[2], "최근3_3일": tds[3],
+            "최근2_장소일자": tds[4], "최근2_1일": tds[5], "최근2_2일": tds[6], "최근2_3일": tds[7],
+            "최근1_장소일자": tds[8], "최근1_1일": tds[9], "최근1_2일": tds[10], "최근1_3일": tds[11],
+            "금회_1일":      tds[12], "금회_2일": tds[13],
+            "금회_3일":      tds[14] if len(tds) > 14 else "",
         })
     df_rec = pd.DataFrame(rec)
 
+    # 6) 병합
     df = (
         df_base
         .merge(df_train, on="이름", how="left")
         .merge(df_rec,   on="이름", how="left")
     )
 
-    # 새 컬럼을 맨 앞에 넣기
-    df.insert(0, '일차', 일차)
-    df.insert(0, '회차', 회차)
-    df.insert(0, '연도', year)
-    df.insert(0, '날짜', 날짜)
+    # 7) 앞에 메타컬럼 삽입
+    df.insert(0, '경주시간', 경주시간)
+    df.insert(0, '경주종류', 경주종류)
+    df.insert(0, '경주번호', 경주번호)
+    df.insert(0, '경주지역', 경주지역)
+    df.insert(0, '일차',   일차)
+    df.insert(0, '회차',   회차)
+    df.insert(0, '연도',   year)
+    df.insert(0, '날짜',   날짜)
 
     return df
 
@@ -221,7 +275,7 @@ def parse_all_races(year: int, 회차: str, 일차: str, 날짜: str):
         경주번호 = no.group(1) if no else ""
 
         # 맨 앞에 공통 컬럼 추가
-        # df.insert(0, '경주시간',  경주시간)
+        df.insert(0, '경주시간',  경주시간)
         df.insert(0, '경주종류',  경주종류)
         df.insert(0, '경주번호',  경주번호)
         df.insert(0, '경주지역',  경주지역)
@@ -272,7 +326,7 @@ if __name__ == "__main__":
         help="요청 사이 대기 시간(초)"
     )
     p.add_argument(
-        "--output", default="kcycle_race_inputs.csv",
+        "--output", default="./data/kcycle_race_inputs.csv",
         help="결과를 저장할 CSV 파일명"
     )
     args = p.parse_args()
@@ -290,3 +344,6 @@ if __name__ == "__main__":
         print(f"✅ 저장 완료: {args.output} ({len(df_all)} rows)")
     else:
         print("⚠️ 수집된 데이터가 없습니다.")
+
+    # 예시
+    # python kcycle_race_crawler.py --years 2017-2025 --pause 0.5 --output ./data/train.csv
