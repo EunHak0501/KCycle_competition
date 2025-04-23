@@ -1,5 +1,3 @@
-# race_crawler.py
-
 import re
 import time
 import requests
@@ -326,7 +324,7 @@ if __name__ == "__main__":
         help="요청 사이 대기 시간(초)"
     )
     p.add_argument(
-        "--output", default="./data/kcycle_race_inputs.csv",
+        "--output", default="./data/race_inputs.csv",
         help="결과를 저장할 CSV 파일명"
     )
     args = p.parse_args()
@@ -346,4 +344,4 @@ if __name__ == "__main__":
         print("⚠️ 수집된 데이터가 없습니다.")
 
     # 예시
-    # python kcycle_race_crawler.py --years 2017-2025 --pause 0.5 --output ./data/train.csv
+    # python kcycle_race_crawler.py --years 2017-2025 --pause 0.5
