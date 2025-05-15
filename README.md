@@ -1,7 +1,7 @@
 # KCycle 경륜 데이터 분석 경진대회
 
-- 예선: **1위 (1st)**
-- 본선: **우수상** ([2023년 KCycle 경륜 데이터 분석 경진대회](https://www.kcycle.or.kr/customerplaza/notice/20147))
+
+- **우수상** ([2023년 KCycle 경륜 데이터 분석 경진대회](https://www.kcycle.or.kr/customerplaza/notice/20147))
 
 ---
 
