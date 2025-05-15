@@ -22,8 +22,6 @@ KCycle_competition/
         └── loader.py                # 데이터 로드 유틸
 ```
 
-> **Tip**: `pip install -e .` 로 패키지를 editable 모드로 설치하면 `kcycle` 모듈을 어디서든 import 할 수 있습니다.
-
 ---
 
 ## 1. 데이터 수집
