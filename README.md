@@ -53,8 +53,7 @@ from kcycle.loader import load_data
 train = load_data()
 ```
 
-- **정규화·결측치 대체·파생변수 생성** 등 모든 전처리 과정을 함수화하여 재현성을 확보했습니다.
-- 경주 단위 split(7명 → 1샘플)과 선수 단위 split 두 가지를 모두 실험했습니다.
+- 경주 단위 split(7명 → 1샘플)과 선수 단위 split 두 가지를 모두 실험
 
 ---
 
