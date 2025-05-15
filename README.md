@@ -53,7 +53,7 @@ from kcycle.loader import load_data
 train = load_data()
 ```
 
-- 경주 단위 split(7명 → 1샘플)과 선수 단위 split 두 가지를 모두 실험
+- 경주 단위(7명 → 1샘플)와 선수 단위 두 가지를 모두 실험
 
 ---
 
